@@ -7,7 +7,10 @@
 
 void search_files(const char *dir,const char *file_pattern, const char * regex) {
   // Compile the regular expression
-  
+
+  regex_t re;
+        
+  regcomp(&re, regex, REG_EXTENDED);
   // Open the directory
   DIR *dp = opendir(dir);
   if (dp == NULL) {
@@ -23,18 +26,45 @@ void search_files(const char *dir,const char *file_pattern, const char * regex) 
     char *file_name = de->d_name;
     // Check if the file matches the regular expression
     // Check if the file matches the file pattern
-    if (fnmatch(file_pattern, file_name, 0) == 0) {
-      regex_t re;
-      regcomp(&re, regex, REG_EXTENDED);
+    if (fnmatch(file_pattern, file_name, 0) == 0 &&  de->d_type != DT_DIR) {
+      char *fname = (char *)malloc(strlen(dir) + 2 + 1);
+      strcpy(fname, dir);
       
-      int matched = regexec(&re, file_name, 0, NULL, 0);
+      strcat(fname, "/");
+      
+      strcat(fname, file_name);
 
-      if (matched == 0) {
-      // The file matches both the file pattern and the regular expression, print it
-        printf("%s / %s\n", dir, file_name);
+      FILE *fp = fopen(fname, "r");
+
+      if (fp == NULL) {
+        printf("Could not open file '%s : %s'\n", fname, file_name);
+        continue;
+      }
+      
+      // Read the file content
+
+      char buf[1024];
+      char *bufCont = (char *)malloc(0 + 2 + 1);
+      
+      while (fgets(buf, sizeof(buf), fp) != NULL) {
+        strcat(bufCont, buf);
+        // Check if the file content matches the regular expression
+        
       }
 
-      regfree(&re);
+
+      int matched = regexec(&re, bufCont, 0, NULL, 0);
+      
+      if (matched == 0) {
+        // The file content matches the regular expression, print it
+        printf("%s: %s\n", fname, buf);
+        continue;
+      }
+
+      fclose(fp);
+      free(fname);
+
+
     }
     if (de->d_type == DT_DIR && strcmp(de->d_name, ".") != 0 && strcmp(de->d_name, "..") != 0) {
       // The entry is a directory
@@ -48,11 +78,13 @@ void search_files(const char *dir,const char *file_pattern, const char * regex) 
       
       free(next_dir);
     }
+      
   }
 
   // Close the directory
   closedir(dp);
 
+  regfree(&re);
   
 }
 
