@@ -4,10 +4,10 @@
 #include <regex.h>
 #include <dirent.h>
 #include <fnmatch.h>
+#include <sys/stat.h>
 
 void search_files(const char *dir,const char *file_pattern, const char * regex) {
   // Compile the regular expression
-
   regex_t re;
         
   regcomp(&re, regex, REG_EXTENDED);
@@ -17,7 +17,6 @@ void search_files(const char *dir,const char *file_pattern, const char * regex) 
     printf("Could not open directory '%s'\n", dir);
     return;
   }
-  
 
   // Iterate over the files in the directory
   struct dirent *de;
@@ -26,18 +25,28 @@ void search_files(const char *dir,const char *file_pattern, const char * regex) 
     char *file_name = de->d_name;
     // Check if the file matches the regular expression
     // Check if the file matches the file pattern
-    if (fnmatch(file_pattern, file_name, 0) == 0 &&  de->d_type != DT_DIR) {
-      char *fname = (char *)malloc(strlen(dir) + 2 + 1);
-      strcpy(fname, dir);
-      
-      strcat(fname, "/");
-      
-      strcat(fname, file_name);
+    struct stat st;
 
-      FILE *fp = fopen(fname, "r");
+    char *next_entry_path = (char *)malloc(strlen(dir) + 2 + 1);
+    strcpy(next_entry_path, dir);
+    strcat(next_entry_path, "/");
+    strcat(next_entry_path, file_name);
+
+    // Get the status of the file
+    stat(next_entry_path, &st);
+  
+    if (S_ISDIR(st.st_mode)) {
+      if (strcmp(de->d_name, ".") != 0 && strcmp(de->d_name, "..") != 0) {     
+          // The entry is a directory
+          
+          search_files(next_entry_path, file_pattern, regex);
+      }
+    } else if (fnmatch(file_pattern, file_name, 0) == 0) {
+
+      FILE *fp = fopen(next_entry_path, "r");
 
       if (fp == NULL) {
-        printf("Could not open file '%s : %s'\n", fname, file_name);
+        printf("Could not open file '%s : %s'\n", next_entry_path, file_name);
         continue;
       }
       
@@ -47,43 +56,26 @@ void search_files(const char *dir,const char *file_pattern, const char * regex) 
       char *bufCont = (char *)malloc(0 + 2 + 1);
       
       while (fgets(buf, sizeof(buf), fp) != NULL) {
-        strcat(bufCont, buf);
-        // Check if the file content matches the regular expression
-        
+        strcat(bufCont, buf); 
       }
 
-
+      // Check if the file content matches the regular expression
       int matched = regexec(&re, bufCont, 0, NULL, 0);
       
       if (matched == 0) {
         // The file content matches the regular expression, print it
-        printf("%s: %s\n", fname, buf);
+        printf("%s: %s\n", next_entry_path, buf);
         continue;
       }
 
       fclose(fp);
-      free(fname);
-
-
     }
-    if (de->d_type == DT_DIR && strcmp(de->d_name, ".") != 0 && strcmp(de->d_name, "..") != 0) {
-      // The entry is a directory
-      char *next_dir = (char *)malloc(strlen(dir) + 2 + 1);
-      strcpy(next_dir, dir);
-      strcat(next_dir, "/");
-      strcat(next_dir, de->d_name);
-
-      search_files(next_dir, file_pattern, regex);
-
-      
-      free(next_dir);
-    }
-      
+    
+    free(next_entry_path);
   }
 
   // Close the directory
   closedir(dp);
-
   regfree(&re);
   
 }
@@ -101,10 +93,5 @@ int main(int argc, char *argv[]) {
   
   // Start the recursive search
   search_files(".", file_pattern, regex);
-
-  // Cleanup
-  
-
   return 0;
 }
-
