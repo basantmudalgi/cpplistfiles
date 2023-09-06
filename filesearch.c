@@ -6,13 +6,23 @@
 #include <fnmatch.h>
 #include <sys/stat.h>
 
+#include <sys/types.h>
+#include <fcntl.h>
+
 void search_files(const char *dir,const char *file_pattern, const char * regex) {
   // Compile the regular expression
   regex_t re;
         
   regcomp(&re, regex, REG_EXTENDED);
   // Open the directory
-  DIR *dp = opendir(dir);
+  
+  int dir_fd = open(dir, O_RDONLY);
+  if (dir_fd == -1) {
+      perror("open");
+  }
+
+  DIR *dp = fdopendir(dir_fd);
+  
   if (dp == NULL) {
     printf("Could not open directory '%s'\n", dir);
     return;
@@ -25,53 +35,58 @@ void search_files(const char *dir,const char *file_pattern, const char * regex) 
     char *file_name = de->d_name;
     // Check if the file matches the regular expression
     // Check if the file matches the file pattern
-    struct stat st;
+    
+    if (strcmp(file_name, ".") != 0 && strcmp(file_name, "..") != 0) {
+        // Get the status of the file
+      struct stat st;
 
-    char *next_entry_path = (char *)malloc(strlen(dir) + 2 + 1);
-    strcpy(next_entry_path, dir);
-    strcat(next_entry_path, "/");
-    strcat(next_entry_path, file_name);
+      size_t path_len = strlen(dir) + strlen(file_name) + 2;
+      char *next_entry_path = (char *)malloc(path_len);
+      if (next_entry_path == NULL) {
+          perror("malloc");
+          // Handle allocation error
+      }
+      sprintf(next_entry_path, "%s/%s", dir, file_name);
 
-    // Get the status of the file
-    stat(next_entry_path, &st);
-  
-    if (S_ISDIR(st.st_mode)) {
-      if (strcmp(de->d_name, ".") != 0 && strcmp(de->d_name, "..") != 0) {     
-          // The entry is a directory
+      stat(next_entry_path, &st);
+      if (S_ISDIR(st.st_mode)) {
           
-          search_files(next_entry_path, file_pattern, regex);
+        // The entry is a directory
+        
+        search_files(next_entry_path, file_pattern, regex);
+      } else if (fnmatch(file_pattern, file_name, 0) == 0) {
+            
+        FILE *fp = fopen(next_entry_path, "r");
+
+        if (fp == NULL) {
+          printf("Could not open file '%s : %s'\n", next_entry_path, file_name);
+          continue;
+        }
+        
+        // Read the file content
+
+        char buf[1024];
+        char *bufCont = (char *)malloc(0 + 2 + 1);
+        
+        while (fgets(buf, sizeof(buf), fp) != NULL) {
+          strcat(bufCont, buf); 
+        }
+
+        // Check if the file content matches the regular expression
+        int matched = regexec(&re, bufCont, 0, NULL, 0);
+        
+        if (matched == 0) {
+          // The file content matches the regular expression, print it
+          printf("%s: %s\n", next_entry_path, buf);
+          continue;
+        }
+
+        fclose(fp);
       }
-    } else if (fnmatch(file_pattern, file_name, 0) == 0) {
 
-      FILE *fp = fopen(next_entry_path, "r");
-
-      if (fp == NULL) {
-        printf("Could not open file '%s : %s'\n", next_entry_path, file_name);
-        continue;
-      }
-      
-      // Read the file content
-
-      char buf[1024];
-      char *bufCont = (char *)malloc(0 + 2 + 1);
-      
-      while (fgets(buf, sizeof(buf), fp) != NULL) {
-        strcat(bufCont, buf); 
-      }
-
-      // Check if the file content matches the regular expression
-      int matched = regexec(&re, bufCont, 0, NULL, 0);
-      
-      if (matched == 0) {
-        // The file content matches the regular expression, print it
-        printf("%s: %s\n", next_entry_path, buf);
-        continue;
-      }
-
-      fclose(fp);
+      free(next_entry_path);
     }
     
-    free(next_entry_path);
   }
 
   // Close the directory
